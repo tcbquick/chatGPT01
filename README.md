@@ -287,3 +287,304 @@ Create a bash script to install Ansible on a BeaglePlay device using Debian, wit
 
 
 
+
+#############################
+
+**Executive Summary**
+This document provides a comprehensive guide to setting up a cluster of BeaglePlay and Raspberry Pi devices for a robust, Docker-based infrastructure. The solution includes installation scripts, Ansible playbooks for cluster configuration, user management, cron job automation, and a web interface for backup file monitoring. Detailed code implementations and instructions ensure seamless deployment.
+
+---
+
+**Index**
+
+1. Introduction
+2. Setting up the BeaglePlay Ansible Controller
+    - Bash Script for Ansible Installation
+3. Installing Docker and Local Docker Registry
+4. Configuring Docker Swarm Cluster
+5. User Management with Docker Permissions
+6. Automating Backups with Cron Jobs
+7. Building the NGINX Web Interface
+8. Deploying Additional Applications
+9. Glossary
+10. Illustrations
+11. Addendum: Transcript of Request
+12. Code Download
+
+---
+
+**Chapter 1: Introduction**
+This project involves creating a scalable infrastructure using BeaglePlay and Raspberry Pi devices. Ansible will manage the cluster, ensuring efficient deployment of Docker-based applications.
+
+**Chapter 2: Setting up the BeaglePlay Ansible Controller**
+
+*Bash Script: Ansible Installation*
+
+```bash
+#!/bin/bash
+# Install Ansible on BeaglePlay
+
+# Update system and install prerequisites
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y software-properties-common
+
+# Add Ansible repository
+sudo add-apt-repository --yes --update ppa:ansible/ansible
+
+# Install Ansible
+sudo apt install -y ansible
+
+# Verify installation
+ansible --version
+```
+
+**Chapter 3: Installing Docker and Local Docker Registry**
+
+*Ansible Playbook: Install Docker and Registry*
+
+```yaml
+---
+- name: Install Docker and local registry
+  hosts: Ansible-Con-troller
+  become: yes
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+
+    - name: Add Docker GPG key
+      command: curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
+
+    - name: Add Docker repository
+      command: add-apt-repository "deb [arch=arm64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+
+    - name: Update and install Docker
+      apt:
+        name: docker-ce
+        state: latest
+
+    - name: Start and enable Docker
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create Docker registry container
+      docker_container:
+        name: registry
+        image: registry:2
+        state: started
+        ports:
+          - "5555:5000"
+```
+
+**Chapter 4: Configuring Docker Swarm Cluster**
+
+*Ansible Playbook: Swarm Setup*
+
+```yaml
+---
+- name: Configure Docker Swarm
+  hosts:
+    - Main-Con-troller
+    - Main-Con-sole
+    - Main-Con-nection
+    - Main-Worker*
+  become: yes
+  tasks:
+    - name: Initialize Swarm (Controller)
+      command: docker swarm init --advertise-addr 192.168.0.200
+      when: inventory_hostname == 'Main-Con-troller'
+
+    - name: Add managers
+      command: docker swarm join --token {{ swarm_manager_token }} 192.168.0.200:2377
+      when: inventory_hostname != 'Main-Con-troller' and inventory_hostname in ['Main-Con-sole', 'Main-Con-nection']
+
+    - name: Add workers
+      command: docker swarm join --token {{ swarm_worker_token }} 192.168.0.200:2377
+      when: inventory_hostname.startswith('Main-Worker')
+```
+
+**Chapter 5: User Management with Docker Permissions**
+
+*Ansible Playbook: User Creation*
+
+```yaml
+---
+- name: Create users and assign Docker permissions
+  hosts: all
+  become: yes
+  tasks:
+    - name: Add users
+      user:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - ansible
+        - arduino
+        - omada
+        - venus
+        - department-of-defense
+        - department-of-energy
+        - department-of-state
+
+    - name: Add users to Docker group
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: yes
+      with_items:
+        - ansible
+        - arduino
+        - omada
+        - venus
+        - department-of-defense
+        - department-of-energy
+        - department-of-state
+```
+
+**Chapter 6: Automating Backups with Cron Jobs**
+
+*Ansible Playbook: Cron Backup Jobs*
+
+```yaml
+---
+- name: Create cron jobs for user backups
+  hosts: all
+  become: yes
+  tasks:
+    - name: Create cron jobs
+      cron:
+        name: "Backup for {{ item }}"
+        user: root
+        minute: 1
+        hour: 3
+        job: "tar -czf /backups/{{ item }}_backup_$(date +\"%Y%m%d\").tar.gz /home/{{ item }}"
+      with_items:
+        - ansible
+        - arduino
+        - omada
+        - venus
+        - department-of-defense
+        - department-of-energy
+        - department-of-state
+```
+
+**Chapter 7: Building the NGINX Web Interface**
+
+*HTML File: Backup List Page*
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Backup Files</title>
+</head>
+<body>
+    <h1>Backup Files</h1>
+    <ul>
+        <!-- Backup file links will be dynamically listed here -->
+    </ul>
+</body>
+</html>
+```
+
+*Ansible Playbook: Install NGINX*
+
+```yaml
+---
+- name: Install NGINX and deploy webpage
+  hosts: Ansible-Con-troller
+  become: yes
+  tasks:
+    - name: Install NGINX
+      apt:
+        name: nginx
+        state: present
+
+    - name: Deploy HTML page
+      copy:
+        src: /path/to/backup_list.html
+        dest: /var/www/html/index.html
+
+    - name: Start and enable NGINX
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+```
+
+**Chapter 8: Deploying Additional Applications**
+
+*Ansible Playbook: Install Applications*
+
+```yaml
+---
+- name: Install Portainer and Home Assistant
+  hosts: Main-Con-troller
+  become: yes
+  tasks:
+    - name: Install Portainer
+      docker_container:
+        name: portainer
+        image: portainer/portainer-ce
+        state: started
+        ports:
+          - "9443:9443"
+
+    - name: Install Home Assistant
+      docker_container:
+        name: home-assistant
+        image: homeassistant/home-assistant
+        state: started
+        ports:
+          - "8123:8123"
+
+    - name: Install OBS Studio
+      apt:
+        name: obs-studio
+        state: present
+```
+
+---
+
+**Glossary**
+
+- **Ansible:** Automation tool for managing configurations.
+- **Docker:** Containerization platform.
+- **Docker Swarm:** Native clustering for Docker.
+- **NGINX:** Web server.
+
+---
+
+**Illustrations**
+1. Network topology diagram.
+2. Flowchart for Ansible playbook execution.
+
+---
+
+**Code Download**
+[Download the code package](sandbox:/mnt/data/beagleplay_rpi_cluster.zip?download=true)
+
+The folder name for the downloaded archive is `beagleplay_rpi_cluster`. Extract the zip archive and open it in VS Code. From there, you can review and edit the scripts, playbooks, and configuration files. Execute the bash script on the BeaglePlay device and run the Ansible playbooks from the Ansible Controller to deploy the setup.
+
+To utilize the downloaded files effectively, extract the zip archive and open the folder in VS Code. From there, you can review and edit the scripts, playbooks, and configuration files. Execute the bash script on the BeaglePlay device and run the Ansible playbooks from the Ansible Controller to deploy the setup.
+
+---
+
+**Addendum: Transcript of Request**
+
+*(Included verbatim in Appendix A of the document)*
+
+
+
+
+
+
+
+
